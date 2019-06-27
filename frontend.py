@@ -24,6 +24,7 @@ _HEADERS = {
     'accept': 'text/html,application/xhtml+xml,application/xml'
     }
 
+SortRole = Qt.UserRole
 
 columns = {'id': 'INTEGER PRIMARY KEY', 'title':'TEXT', 'author':'TEXT', 'date':'INTEGER', 'document':'TEXT', 'form':'TEXT', 'tags':'TEXT', 'notes':'TEXT', 'opened':'TIMESTAMP', 'created':'TIMESTAMP', 'abstract':'TEXT', 'refs':'TEXT', 'link':'TEXT', 'length':'INTEGER', 'journal':'TEXT', 'publisher':'TEXT', 'pages':'TEXT', 'number':'TEXT', 'volume':'TEXT', 'doi':'TEXT'}
 
@@ -99,13 +100,14 @@ class Window(QDialog):
         self.filteredModel.setFilterRegExp(x)
 
     def prepareTable(self):
-        self.model = QSqlTableModel()
+        self.model = SqlTableModel()
         self.model.setTable('literature')
         self.model.setEditStrategy(QSqlTableModel.OnFieldChange)
         self.model.select()
 
         self.filteredModel = SortFilterProxyModel()
         self.filteredModel.setSourceModel(self.model)
+        self.filteredModel.setSortRole(SortRole)
 
         for index, column in enumerate(columns):
             self.model.setHeaderData(index, Qt.Horizontal, column)
@@ -243,7 +245,6 @@ class Window2(QDialog):
         new_data['document'] = filename
         new_data['length'] = PdfFileReader(open(path,'rb')).getNumPages()
         return new_data
-        
 
     def arxiv(self, inputData):
         logging.info('search arxiv with values: ' + str(inputData))
@@ -379,6 +380,19 @@ class TextEdit(QTextEdit):
         textHeight = max(1, paragraphs) * 20 + 10
         self.setMaximumSize(textWidth, textHeight)
 
+class SqlTableModel(QSqlTableModel):
+    def __init__(self, *args, **kwargs):
+        QSqlTableModel.__init__(self, *args, **kwargs)
+    
+    def data(self, index, role=Qt.DisplayRole):
+        if role == SortRole:
+            value = QSqlTableModel.data(self, index, role=Qt.DisplayRole)
+            try:
+                return int(value)
+            except:
+                return value 
+        else:
+            return QSqlTableModel.data(self, index, role)
 
 class SortFilterProxyModel(QSortFilterProxyModel):
 # from https://stackoverflow.com/questions/47201539/how-to-filter-multiple-column-in-qtableview
