@@ -23,8 +23,10 @@ PyQt5==5.12.1
 PyQt5-sip==4.19.15
 python-dateutil==2.8.0
 pytz==2019.1
+pyyaml==5.1.2
 requests==2.21.0
 scholarly==0.2.4
+Send2Trash=1.5.0
 six==1.12.0
 soupsieve==1.9.1
 urllib3==1.24.2

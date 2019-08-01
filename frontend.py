@@ -1,5 +1,5 @@
 from PyQt5.QtCore import Qt, QTimer, QSortFilterProxyModel, pyqtSignal, QDateTime, QModelIndex, QItemSelectionModel
-from PyQt5.QtWidgets import (QApplication, QDialog, QTableWidget, QGridLayout, QTableWidgetItem, QTableView, QLineEdit, QFormLayout, QPushButton, QHeaderView, QTextEdit, QScrollArea, QWidget, QComboBox, QAbstractItemView)
+from PyQt5.QtWidgets import (QApplication, QDialog, QTableWidget, QGridLayout, QTableWidgetItem, QTableView, QLineEdit, QFormLayout, QPushButton, QHeaderView, QTextEdit, QScrollArea, QWidget, QComboBox, QAbstractItemView, QMessageBox)
 from PyQt5.QtSql import QSqlDatabase, QSqlQuery, QSqlTableModel, QSqlRecord
 from PyQt5.QtGui import QFontMetrics
 import pandas as pd
@@ -10,6 +10,12 @@ import scholarly
 import logging
 import bibtexparser
 from PyPDF2 import PdfFileReader
+import yaml
+from send2trash import send2trash
+import platform
+
+with open("config.yml", 'r') as ymlfile:
+    cfg = yaml.load(ymlfile, Loader=yaml.FullLoader)
 
 logging.basicConfig(filename='logfile.log',level=logging.DEBUG, format='%(asctime)s %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
 
@@ -32,7 +38,7 @@ class Window(QDialog):
     def __init__(self, parent=None):
         super(Window, self).__init__(parent)
         self.showMaximized()
-        self.database = Database('database.db')
+        self.database = Database(cfg['database_name'])
         self.mainLayout = QGridLayout()
         self.mainLayout.setColumnStretch(0,2)
         self.mainLayout.setColumnStretch(1,4)
@@ -79,15 +85,14 @@ class Window(QDialog):
     def removeRow(self):
         indexes = self.view.selectionModel().selectedIndexes()
         for index in indexes:
-            logging.info('Removed row with title entry: ' + str(self.filteredModel.index(index.row(), 1)))
-            # to implement:
-            # ind = list(columns.keys()).index('document')
-            # document = self.filteredModel.index(index.row(), ind)
-            # ask if remove file: os.remove(os.path.join('temp', document))
-            self.filteredModel.removeRow(index.row())
-
+            if QMessageBox.Yes == QMessageBox(QMessageBox.Information, '', 'Do you really want to delete these elements?', QMessageBox.Yes | QMessageBox.No).exec_():
+                document = self.filteredModel.index(index.row(), 4).data()
+                send2trash(os.path.join(cfg['temp'], document))
+                logging.info('Removed row with title entry: ' + str(self.filteredModel.index(index.row(), 1).data()))
+                self.filteredModel.removeRow(index.row())
         self.model.select()
-    
+
+
     def openWindow2(self):
         window2 = Window2(self.model)
         window2.exec_()
@@ -130,15 +135,17 @@ class Window(QDialog):
         if not isinstance(fieldname, str):
             return
         if 'pdf' in fieldname:
-            path = os.path.join('temp',y.data())
+            path = os.path.join(cfg['temp'],y.data())
             if os.path.exists(path):
-                command = 'evince "{}"'.format(path)
+                if platform.system() == 'Linux':
+                    command = 'evince "{}"'.format(path)
+                else:
+                    command = ''.format(path)
                 subprocess.Popen(command,shell=True)
                 ind = list(columns.keys()).index('opened')
                 indexx = self.filteredModel.index(y.row(), ind)
                 self.filteredModel.setData(indexx, QDateTime.currentDateTime())
                 logging.info('Open document: '+ path)
-                
             else:
                 print('file not found')
         elif 'http' in fieldname:
@@ -237,7 +244,7 @@ class Window2(QDialog):
         title = re.sub(r"[^a-zA-Z0-9]+", ' ', new_data.get('title'))
         date = new_data.get('date') if new_data.get('date') else ''
         filename = date + ' ' +  title + ' - ' + author + '.pdf'
-        path = os.path.join('temp', filename)
+        path = os.path.join(cfg['temp'], filename)
         if not os.path.exists(path):
             response = requests.get(new_data['document'])
             with open(path, 'wb') as f:
@@ -444,7 +451,7 @@ class Database:
         docs = []
         while (query.next()):
             docs.append(query.value(0))
-        new_docs = set(os.listdir('temp')) - set(docs)
+        new_docs = set(os.listdir(cfg['temp'])) - set(docs)
         for filename in new_docs:
             data = {'document': filename}
             try:
@@ -457,14 +464,14 @@ class Database:
                 data['author'] = filename.split(' - ')[1].split('.pdf')[0]
             except:
                 pass
+            data['length'] = PdfFileReader(open(os.path.join(cfg['temp'], data['document']),'rb')).getNumPages()
+            data['created'] =  QDateTime.fromSecsSinceEpoch(os.path.getmtime(os.path.join(cfg['temp'], data['document'])))
             logging.info("Added " + str(data))
-            data['length'] = PdfFileReader(open(os.path.join('temp', data['document']),'rb')).getNumPages()
-            data['created'] = QDateTime.currentDateTime()
             self.insert(data)
 
     def insert(self, data):
-        empty_data = {column: '' for column in columns}
-        full_data = {**empty_data, **data}
+        full_data = {column: '' for column in columns}
+        full_data.update(data)
         full_data['id'] = 'NULL'
         query = QSqlQuery()
         queryText = 'INSERT INTO literature VALUES (NULL, ' + str((', ?')*(len(columns) - 1)).replace("'", "")[1:] + ')'  
