@@ -455,21 +455,22 @@ class Database:
             docs.append(query.value(0))
         new_docs = set(os.listdir(cfg['temp'])) - set(docs)
         for filename in new_docs:
-            data = {'document': filename}
-            try:
-                data['date'] = int(filename[:4])
-                filename = filename[5:]
-            except:
-                pass
-            data['title'] = filename.split(' - ')[0]
-            try:
-                data['author'] = filename.split(' - ')[1].split('.pdf')[0]
-            except:
-                pass
-            data['length'] = PdfFileReader(open(os.path.join(cfg['temp'], data['document']),'rb')).getNumPages()
-            data['created'] =  QDateTime.fromSecsSinceEpoch(os.path.getmtime(os.path.join(cfg['temp'], data['document'])))
-            logging.info("Added " + str(data))
-            self.insert(data)
+            if not filename.startswith('.'):
+                data = {'document': filename}
+                try:
+                    data['date'] = int(filename[:4])
+                    filename = filename[5:]
+                except:
+                    pass
+                data['title'] = filename.split(' - ')[0]
+                try:
+                    data['author'] = filename.split(' - ')[1].split('.pdf')[0]
+                except:
+                    pass
+                data['length'] = PdfFileReader(open(os.path.join(cfg['temp'], data['document']),'rb')).getNumPages()
+                data['created'] =  QDateTime.fromSecsSinceEpoch(os.path.getmtime(os.path.join(cfg['temp'], data['document'])))
+                logging.info("Added " + str(data))
+                self.insert(data)
 
     def insert(self, data):
         full_data = {column: '' for column in columns}
