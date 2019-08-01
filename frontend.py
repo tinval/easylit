@@ -87,7 +87,10 @@ class Window(QDialog):
         for index in indexes:
             if QMessageBox.Yes == QMessageBox(QMessageBox.Information, '', 'Do you really want to delete these elements?', QMessageBox.Yes | QMessageBox.No).exec_():
                 document = self.filteredModel.index(index.row(), 4).data()
-                send2trash(os.path.join(cfg['temp'], document))
+                try:
+                    send2trash(os.path.join(cfg['temp'], document))
+                except:
+                    os.remove(os.path.join(cfg['temp'], document))
                 logging.info('Removed row with title entry: ' + str(self.filteredModel.index(index.row(), 1).data()))
                 self.filteredModel.removeRow(index.row())
         self.model.select()
