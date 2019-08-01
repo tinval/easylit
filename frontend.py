@@ -109,7 +109,6 @@ class Window(QDialog):
         self.model.setTable('literature')
         self.model.setEditStrategy(QSqlTableModel.OnFieldChange)
         self.model.select()
-
         self.filteredModel = SortFilterProxyModel()
         self.filteredModel.setSourceModel(self.model)
         self.filteredModel.setSortRole(SortRole)
@@ -121,6 +120,7 @@ class Window(QDialog):
         self.view.setModel(self.filteredModel)
         self.view.doubleClicked.connect(self.openDocument)
         self.view.clicked.connect(self.openView)
+        self.view.selectionModel().selectionChanged.connect(self.openView)
         self.view.setWordWrap(False)
         self.view.setColumnWidth(1, 300)
         self.view.setColumnWidth(2, 200)
@@ -352,14 +352,16 @@ class FormLayout(QFormLayout):
         return {self.itemAt(2*i).widget().text():self.itemAt(2*i+1).widget().toPlainText() for i in range(int(self.count() / 2))}
 
     def setAllValues(self):
-        index = self.view.selectionModel().selectedIndexes()[0].row()
-        values = [str(self.model.index(index, i).data()) for i in range(len(columns))]
-        for i in range(int(self.count() / 2)):
-            widg = self.itemAt(2*i+1).widget()
-            widg.setText(values[i])
-            widg.adjust()
-            widg.lostFocus.connect(lambda col=i: self.updateData(col))
-            widg.textChanged.connect(widg.adjust)
+        indices = self.view.selectionModel().selectedIndexes()
+        if len(indices) > 0:
+            index = indices[0].row()
+            values = [str(self.model.index(index, i).data()) for i in range(len(columns))]
+            for i in range(int(self.count() / 2)):
+                widg = self.itemAt(2*i+1).widget()
+                widg.setText(values[i])
+                widg.adjust()
+                widg.lostFocus.connect(lambda col=i: self.updateData(col))
+                widg.textChanged.connect(widg.adjust)
 
     def updateData(self, column):
         text = self.itemAt(2*column+1).widget().toPlainText()
