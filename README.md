@@ -1,6 +1,8 @@
 # easylit
 Database  GUI to store literature
 
+# Enter your API-keys into config file
+
 # How to make an executable app for linux
 
 ```pyinstaller --onefile frontend.py```

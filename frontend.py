@@ -1,18 +1,22 @@
 from PyQt5.QtCore import Qt, QTimer, QSortFilterProxyModel, pyqtSignal, QDateTime, QModelIndex, QItemSelectionModel
-from PyQt5.QtWidgets import (QApplication, QDialog, QTableWidget, QGridLayout, QTableWidgetItem, QTableView, QLineEdit, QFormLayout, QPushButton, QHeaderView, QTextEdit, QScrollArea, QWidget, QComboBox, QAbstractItemView, QMessageBox)
+from PyQt5.QtWidgets import (QApplication, QDialog, QTableWidget, QGridLayout, QTableWidgetItem, QTableView, QLineEdit, QFormLayout, QPushButton, QHeaderView, QTextEdit, QScrollArea, QWidget, QComboBox, QAbstractItemView, QMessageBox, QLabel)
 from PyQt5.QtSql import QSqlDatabase, QSqlQuery, QSqlTableModel, QSqlRecord
 from PyQt5.QtGui import QFontMetrics
 import pandas as pd
-import webbrowser, requests
-import os, subprocess, webbrowser, re, collections, hashlib, random, json 
-import feedparser
-import scholarly
+import requests
+import os, subprocess, webbrowser, re, collections, json 
 import logging
 import bibtexparser
 from PyPDF2 import PdfFileReader
 import yaml
 from send2trash import send2trash
 import platform
+from scrapers import Scraper
+
+_HEADERS = {
+    'accept-language': 'en-US,en',
+    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Ubuntu Chromium/41.0.2272.76 Chrome/41.0.2272.76 Safari/537.36'
+             }
 
 with open("config.yml", 'r') as ymlfile:
     cfg = yaml.load(ymlfile, Loader=yaml.FullLoader)
@@ -20,15 +24,6 @@ with open("config.yml", 'r') as ymlfile:
 logging.basicConfig(filename='logfile.log',level=logging.DEBUG, format='%(asctime)s %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
 
 pd.set_option('mode.chained_assignment', None)
-
-#headers from scholarly
-_GOOGLEID = hashlib.md5(str(random.random()).encode('utf-8')).hexdigest()[:16]
-_COOKIES = {'GSP': 'ID={0}:CF=4'.format(_GOOGLEID)}
-_HEADERS = {
-    'accept-language': 'en-US,en',
-    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Ubuntu Chromium/41.0.2272.76 Chrome/41.0.2272.76 Safari/537.36',
-    'accept': 'text/html,application/xhtml+xml,application/xml'
-    }
 
 SortRole = Qt.UserRole
 
@@ -53,12 +48,10 @@ class Window(QDialog):
                 le.textChanged.connect(lambda text, col=index: self.filteredModel.setFilterByColumn(text, col))
         
         self.wgt = QWidget()
-        self.wgt
         self.flayout2 = FormLayout(columns, self.filteredModel, self.view)
         self.wgt.setLayout(self.flayout2)
         self.scrollarea = QScrollArea()
         self.scrollarea.setWidget(self.wgt)
-#        self.scrollarea.horizontalScrollBar().setEnabled(False) 
 
         button1 = QPushButton()
         button1.setText('Remove rows')
@@ -171,7 +164,9 @@ class TableWidget(QTableWidget):
         self.setRowCount(len(dataframe.index))
         for i in range(len(dataframe.index)):
             for j in range(len(dataframe.columns)):
-                self.setItem(i,j,QTableWidgetItem(str(dataframe.iloc[i, j])))
+                item = QTableWidgetItem(str(dataframe.iloc[i, j]))
+                item.setToolTip(str(dataframe.iloc[i, j]))
+                self.setItem(i,j,item)
         self.setHorizontalHeaderLabels(dataframe.columns)
         self.setColumnWidth(0, 300)
         self.setColumnWidth(1, 150)
@@ -183,7 +178,8 @@ class Window2(QDialog):
         self.model = model
         self.mainLayout = QGridLayout()
         self.mainLayout.setColumnStretch(0,1)
-        self.mainLayout.setColumnStretch(1,4)
+        self.mainLayout.setColumnStretch(1,3)
+        self.mainLayout.setColumnStretch(2,3)
 
         self.flayout = QFormLayout()
         self.flayout.addRow('title', QLineEdit())
@@ -191,10 +187,10 @@ class Window2(QDialog):
         self.flayout.addRow('year', QLineEdit())
         self.flayout.addRow('abstract', QLineEdit())
         self.comboBox = QComboBox()
-        self.comboBox.addItems(['arxiv', 'gscholar'])
+        self.comboBox.addItems(Scraper.scrapers)
         self.flayout.addRow('source', self.comboBox)
 
-        self.table = TableWidget()        
+        self.table = TableWidget()
         
         self.setFixedSize(1000, 600)
         
@@ -206,11 +202,27 @@ class Window2(QDialog):
         button2.setText("Save")
         button2.clicked.connect(self.save)
 
+        self.button3 = QPushButton()
+        self.button3.setText("Next")
+        self.button3.clicked.connect(self.next_results)
+        self.button3.setVisible(False)
+        
+        self.button4 = QPushButton()
+        self.button4.setText("Previous")
+        self.button4.clicked.connect(self.previous_results)
+        self.button4.setVisible(False)
+
+        self.label = QLabel()
+        self.label.setVisible(False)
+
         self.setWindowTitle('Search')
         self.mainLayout.addLayout(self.flayout, 0, 0)
-        self.mainLayout.addWidget(self.table, 0, 1)
-        self.mainLayout.addWidget(button1, 1, 0)
-        self.mainLayout.addWidget(button2, 1, 1)   
+        self.mainLayout.addWidget(self.table, 0, 1, 1, 2)
+        self.mainLayout.addWidget(self.label, 1, 0)
+        self.mainLayout.addWidget(self.button4, 1, 1)
+        self.mainLayout.addWidget(self.button3, 1, 2) 
+        self.mainLayout.addWidget(button1, 2, 0)
+        self.mainLayout.addWidget(button2, 2, 1, 1, 2)   
         
         self.setLayout(self.mainLayout)
         
@@ -221,13 +233,36 @@ class Window2(QDialog):
 
     def search(self):
         inputData = self.getInputData()
-        if inputData['source'] == 'arxiv':
-            df = self.arxiv(inputData)
-        elif inputData['source'] == 'gscholar':
-            df = self.gscholar(inputData)
-        
-        self.table.fillTable(df)
-    
+        source = inputData.pop('source')
+        self.scraper = Scraper(inputData, source)
+        results = self.scraper.search()        
+        self.table.fillTable(results)
+        if self.scraper.total > 10:
+            self.button3.setVisible(True)
+        self.update_label()
+
+    def update_label(self):
+        self.label.setText('Page {} of {}'.format(self.scraper.page, int(self.scraper.total/10)+1))
+        self.label.setVisible(True)
+
+    def next_results(self):
+        self.scraper.page += 1       
+        results = self.scraper.search()
+        self.table.fillTable(results)
+        self.button4.setVisible(True)
+        if self.scraper.total <= 10 * self.scraper.page:
+            self.button3.setVisible(False)
+        self.update_label()
+
+    def previous_results(self):
+        self.scraper.page -= 1
+        results = self.scraper.search()        
+        self.table.fillTable(results)
+        self.button3.setVisible(True)
+        if self.scraper.page <= 1:
+            self.button4.setVisible(False)
+        self.update_label()
+
     def save(self):
         index = self.table.selectionModel().selectedRows()
         if len(index) > 0:
@@ -249,70 +284,24 @@ class Window2(QDialog):
         filename = date + ' ' +  title + ' - ' + author + '.pdf'
         path = os.path.join(cfg['temp'], filename)
         if not os.path.exists(path):
-            response = requests.get(new_data['document'])
-            with open(path, 'wb') as f:
-                f.write(response.content)
-        new_data['document'] = filename
-        new_data['length'] = PdfFileReader(open(path,'rb')).getNumPages()
-        return new_data
-
-    def arxiv(self, inputData):
-        logging.info('search arxiv with values: ' + str(inputData))
-        url = 'http://export.arxiv.org/api/query?search_query=au:"{}"+AND+ti:"{}"+AND+abs:"{}"'.format(inputData['author'], inputData['title'], inputData['abstract'])
-        raw_data = requests.get(url).text
-        data = feedparser.parse(raw_data)
-        data2 = pd.DataFrame(data.get('entries'))
-        if data2.empty:
-            return pd.DataFrame()
-        info = ['title', 'summary']
-        meta_info = {'authors':'name', 'tags':'term'}
-        data3 = data2[info]
-        for column in meta_info:
-            data3[column] = data2[column].apply(lambda x: ', '.join([entry.get(meta_info[column]) for entry in x]))
-        data3['published'] = data2['published'].apply(lambda x: x[:4])
-        
-        def extract(x, value):
-            for entry in x:
-                if value in entry['href']:
-                    return entry['href']
+            response = requests.get(new_data['document'], headers=_HEADERS)
+            if response.ok:
+                try:
+                    with open(path, 'wb') as f:
+                        f.write(response.content)
+                        new_data['document'] = filename
+                        new_data['length'] = PdfFileReader(open(path,'rb')).getNumPages()
+                        display_text = 'Saved document ' + filename
+                except:
+                    display_text = 'Dowload document successful, but not possible to save'
+                    new_data['document'] = ''
             else:
-                return ''
-        data3['link'] = data2['links'].apply(lambda x: extract(x, '/abs/'))
-        data3['document'] = data2['links'].apply(lambda x: extract(x, '/pdf/'))
-   
-        data3.columns = ['title', 'abstract', 'author', 'tags', 'date', 'link', 'document']
-
-        return data3[['title', 'author', 'date', 'tags', 'abstract', 'link', 'document']]
-
-    def gscholar(self, inputData):
-        logging.info('search gscholar with values: ' + str(inputData))
-        inputFormatted = ' '.join(inputData.values())
-        search_query = scholarly.search_pubs_query(inputFormatted)
-        
-        data = pd.DataFrame()
-        count = 0
-        for entry in search_query:
-            print(entry)
-            if count < 4:
-                print('a')
-                datapoint = {'title': entry.bib.get('title'),
-                'author': entry.bib.get('author'),
-                'abstract': entry.bib.get('abstract'), 
-                'link': entry.bib.get('url')}
-                urlBibfile = entry.url_scholarbib
-                response = requests.get(urlBibfile, headers=_HEADERS, cookies=_COOKIES)
-                if response.status_code == 200:
-                    bibDictionary = bibtexparser.loads(response.text).entries[0]
-                    datapoint['date'] = bibDictionary.get('year')
-                    datapoint['journal'] = bibDictionary.get('journal')
-                    datapoint['form'] = bibDictionary.get('ENTRYTYPE')
-                    datapoint['pages'] = bibDictionary.get('pages')
-                    datapoint['number'] = bibDictionary.get('number')
-                    datapoint['volume'] = bibDictionary.get('volume')
-                    datapoint['publisher'] = bibDictionary.get('publisher')
-                    data = data.append(datapoint, ignore_index=True)
-                count = count + 1
-        return data       
+                display_text = 'Dowload document not successful'
+                new_data['document'] = ''
+        msgBox = QMessageBox()
+        msgBox.setText(display_text)
+        msgBox.exec_()
+        return new_data    
 
 class Window3(Window2):
     def __init__(self, model, flayout_outer, parent=None):
