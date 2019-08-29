@@ -130,22 +130,22 @@ class Window(QDialog):
         fieldname = y.data()
         if not isinstance(fieldname, str):
             return
-        if 'pdf' in fieldname:
+        if 'http' in fieldname:
+            webbrowser.open(fieldname, new=2)
+        elif '.pdf' in fieldname:
             path = os.path.join(cfg['temp'],y.data())
             if os.path.exists(path):
                 if platform.system() == 'Linux':
                     command = 'evince "{}"'.format(path)
+                    subprocess.Popen(command,shell=True)
                 else:
-                    command = ''.format(path)
-                subprocess.Popen(command,shell=True)
+                    webbrowser.open_new(r'file://{}'.format(path))
                 ind = list(columns.keys()).index('opened')
                 indexx = self.filteredModel.index(y.row(), ind)
                 self.filteredModel.setData(indexx, QDateTime.currentDateTime())
                 logging.info('Open document: '+ path)
             else:
                 print('file not found')
-        elif 'http' in fieldname:
-            webbrowser.open(fieldname, new=2)
 
     def openView(self, y):
         self.flayout2.setAllValues()
@@ -235,6 +235,7 @@ class Window2(QDialog):
         inputData = self.getInputData()
         source = inputData.pop('source')
         self.scraper = Scraper(inputData, source)
+        logging.info('Scraper search' + str(inputData))
         results = self.scraper.search()        
         self.table.fillTable(results)
         if self.scraper.total > 10:
@@ -283,6 +284,7 @@ class Window2(QDialog):
         date = new_data.get('date') if new_data.get('date') else ''
         filename = date + ' ' +  title + ' - ' + author + '.pdf'
         path = os.path.join(cfg['temp'], filename)
+        logging.info('Trying to save file ' + filename)
         if not os.path.exists(path):
             response = requests.get(new_data['document'], headers=_HEADERS)
             if response.ok:
@@ -298,9 +300,12 @@ class Window2(QDialog):
             else:
                 display_text = 'Dowload document not successful'
                 new_data['document'] = ''
+        else:
+            display_text = 'File already exists'
         msgBox = QMessageBox()
         msgBox.setText(display_text)
         msgBox.exec_()
+        logging.info(display_text)
         return new_data    
 
 class Window3(Window2):

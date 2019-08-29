@@ -21,7 +21,6 @@ class Scraper:
     def search(self, source=None):
         if source:
             self.source = source
-        #logging.info('search ' + self.source + ' with values: ' + str(self.data))
         if self.source == 'arxiv':
             return self.search_arxiv()
         if self.source == 'springer':
@@ -77,6 +76,8 @@ class Scraper:
         results['publisher'] = raw_results['publisher']
         results['volume'] = raw_results['volume']
         results['number'] = raw_results['number']
+        if 'endingPage' not in raw_results.columns:
+            raw_results['endingPage'] = ''
         results['pages'] = raw_results['startingPage'] + '--' + raw_results['endingPage']
         results['journal'] = raw_results['publicationName']
         results['form'] = raw_results['contentType']
