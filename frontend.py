@@ -29,6 +29,7 @@ SortRole = Qt.UserRole
 
 columns = {'id': 'INTEGER PRIMARY KEY', 'title':'TEXT', 'author':'TEXT', 'date':'INTEGER', 'document':'TEXT', 'form':'TEXT', 'tags':'TEXT', 'notes':'TEXT', 'opened':'TIMESTAMP', 'created':'TIMESTAMP', 'abstract':'TEXT', 'refs':'TEXT', 'link':'TEXT', 'length':'INTEGER', 'journal':'TEXT', 'publisher':'TEXT', 'pages':'TEXT', 'number':'TEXT', 'volume':'TEXT', 'doi':'TEXT'}
 
+
 class Window(QDialog):
     def __init__(self, parent=None):
         super(Window, self).__init__(parent)
@@ -80,10 +81,16 @@ class Window(QDialog):
         for index in indexes:
             if QMessageBox.Yes == QMessageBox(QMessageBox.Information, '', 'Do you really want to delete these elements?', QMessageBox.Yes | QMessageBox.No).exec_():
                 document = self.filteredModel.index(index.row(), 4).data()
-                try:
-                    send2trash(os.path.join(cfg['temp'], document))
-                except:
-                    os.remove(os.path.join(cfg['temp'], document))
+                if 'pdf' in document:
+                    try:
+                        send2trash(os.path.join(cfg['temp'], document))
+                    except:
+                        try:
+                            os.remove(os.path.join(cfg['temp'], document))
+                        except:
+                            msgBox = QMessageBox()
+                            msgBox.setText("Error: No file found")
+                            msgBox.exec_()
                 logging.info('Removed row with title entry: ' + str(self.filteredModel.index(index.row(), 1).data()))
                 self.filteredModel.removeRow(index.row())
         self.model.select()
@@ -104,6 +111,9 @@ class Window(QDialog):
         self.model = SqlTableModel()
         self.model.setTable('literature')
         self.model.setEditStrategy(QSqlTableModel.OnFieldChange)
+        while self.model.canFetchMore():
+            self.model.fetchMore()
+        self.model.submitAll()
         self.model.select()
         self.filteredModel = SortFilterProxyModel()
         self.filteredModel.setSourceModel(self.model)
@@ -184,13 +194,13 @@ class Window2(QDialog):
         self.flayout = QFormLayout()
         self.flayout.addRow('title', QLineEdit())
         self.flayout.addRow('author', QLineEdit())
-        self.flayout.addRow('year', QLineEdit())
         self.flayout.addRow('abstract', QLineEdit())
         self.comboBox = QComboBox()
         self.comboBox.addItems(Scraper.scrapers)
         self.flayout.addRow('source', self.comboBox)
 
         self.table = TableWidget()
+        self.table.doubleClicked.connect(self.openDocument)
         
         self.setFixedSize(1000, 600)
         
@@ -264,6 +274,10 @@ class Window2(QDialog):
             self.button4.setVisible(False)
         self.update_label()
 
+    def openDocument(self, y):
+        if 'http' in y.data():
+            webbrowser.open(y.data(), new=2)
+
     def save(self):
         index = self.table.selectionModel().selectedRows()
         if len(index) > 0:
@@ -279,34 +293,40 @@ class Window2(QDialog):
             self.model.insertRecord(-1, record)
     
     def save_file(self, new_data):
-        author = ', '.join(re.findall(r'(\w*)(?:$|,)', new_data.get('author'))[:-1])
-        title = re.sub(r"[^a-zA-Z0-9]+", ' ', new_data.get('title'))
-        date = new_data.get('date') if new_data.get('date') else ''
-        filename = date + ' ' +  title + ' - ' + author + '.pdf'
-        path = os.path.join(cfg['temp'], filename)
-        logging.info('Trying to save file ' + filename)
-        if not os.path.exists(path):
-            response = requests.get(new_data['document'], headers=_HEADERS)
-            if response.ok:
-                try:
-                    with open(path, 'wb') as f:
-                        f.write(response.content)
+        if 'document' in new_data and len(new_data['document']) > 0:
+            author = ', '.join(re.findall(r'(\w*)(?:$|,)', new_data.get('author'))[:-1])
+            title = re.sub(r"[^a-zA-Z0-9]+", ' ', new_data.get('title'))
+            date = new_data.get('date') if new_data.get('date') else ''
+            filename = date + ' ' +  title + ' - ' + author + '.pdf'
+            path = os.path.join(cfg['temp'], filename)
+            logging.info('Trying to save file ' + filename)
+            if not os.path.exists(path):
+                response = requests.get(new_data['document'], headers=_HEADERS)
+                if response.ok:
+                    try:
+                        with open(path, 'wb') as f:
+                            f.write(response.content)
+                        try:
+                            new_data['length'] = PdfFileReader(open(path,'rb')).getNumPages()
+                        except:
+                            display_text = 'Corrupted document ' + filename
                         new_data['document'] = filename
-                        new_data['length'] = PdfFileReader(open(path,'rb')).getNumPages()
                         display_text = 'Saved document ' + filename
-                except:
-                    display_text = 'Dowload document successful, but not possible to save'
+                    except:
+                        display_text = 'Dowload document successful, but not possible to save.'
+                        new_data['document'] = ''
+                else:
+                    display_text = 'Dowload document not successful.'
                     new_data['document'] = ''
             else:
-                display_text = 'Dowload document not successful'
-                new_data['document'] = ''
+                display_text = 'File ' + filename + 'already exists.'
         else:
-            display_text = 'File already exists'
+            display_text = 'There is no document to save.'
         msgBox = QMessageBox()
         msgBox.setText(display_text)
         msgBox.exec_()
         logging.info(display_text)
-        return new_data    
+        return new_data
 
 class Window3(Window2):
     def __init__(self, model, flayout_outer, parent=None):
@@ -464,7 +484,11 @@ class Database:
                     data['author'] = filename.split(' - ')[1].split('.pdf')[0]
                 except:
                     pass
-                data['length'] = PdfFileReader(open(os.path.join(cfg['temp'], data['document']),'rb')).getNumPages()
+                print(filename)
+                try:
+                    data['length'] = PdfFileReader(open(os.path.join(cfg['temp'], data['document']),'rb')).getNumPages()
+                except:
+                    print(data['document'] + " corrupted")
                 data['created'] =  QDateTime.fromSecsSinceEpoch(os.path.getmtime(os.path.join(cfg['temp'], data['document'])))
                 logging.info("Added " + str(data))
                 self.insert(data)
