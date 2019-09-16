@@ -111,10 +111,9 @@ class Window(QDialog):
         self.model = SqlTableModel()
         self.model.setTable('literature')
         self.model.setEditStrategy(QSqlTableModel.OnFieldChange)
+        self.model.select()
         while self.model.canFetchMore():
             self.model.fetchMore()
-        self.model.submitAll()
-        self.model.select()
         self.filteredModel = SortFilterProxyModel()
         self.filteredModel.setSourceModel(self.model)
         self.filteredModel.setSortRole(SortRole)
@@ -419,6 +418,7 @@ class SqlTableModel(QSqlTableModel):
                 return value 
         else:
             return QSqlTableModel.data(self, index, role)
+        
 
 class SortFilterProxyModel(QSortFilterProxyModel):
 # from https://stackoverflow.com/questions/47201539/how-to-filter-multiple-column-in-qtableview
