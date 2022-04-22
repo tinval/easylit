@@ -18,7 +18,7 @@ pycparser==2.19
 PyInstaller==3.4
 pyOpenSSL==19.0.0
 pyparsing==2.4.0
-PyPDF2==1.26.0
+PyPDF2==1.27.5
 PyQt5==5.12.1
 PyQt5-sip==4.19.15
 python-dateutil==2.8.0
